@@ -1,0 +1,6 @@
+[submodule "py_ppif/pybind11"]
+	path = py_ppif/pybind11
+	url = https://github.com/pybind/pybind11
+[submodule "py_ppif_cuda/pybind11"]
+	path = py_ppif_cuda/pybind11
+	url = https://github.com/pybind/pybind11
