@@ -1,0 +1,6 @@
+.vscode
+py_ppif*/build
+py_ppif*/pyppif*.egg-info
+data
+__pycache__
+*.png
