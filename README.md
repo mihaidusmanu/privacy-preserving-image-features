@@ -1,7 +1,9 @@
 # Privacy-Preserving Image Features
 # (via Adversarial Affine Subspace Embedding)
 
-🚧 This repository is still work in progress. It contains a clean-up reimplementation of the following paper:
+## 🚧 This repository is still work in progress.
+
+It contains a cleaned-up reimplementation of the following paper:
 
 ```text
 "Privacy-Preserving Image Features via Adversarial Affine Subspace Embeddings".
@@ -28,7 +30,7 @@ cd py_ppif_cuda; pip install .; cd ..
 
 ## HPatches Sequences evaluation
 
-Start by installing COLMAP (used for SIFT feature extraction) and set the env variable COLMAP_PATH to the COLMAP executable, e.g.:
+Start by installing COLMAP (used for SIFT feature extraction) and set the env variable `COLMAP_PATH` to the COLMAP executable, e.g.:
 ```
 export COLMAP_PATH=~/sources/colmap/build/src/exe/colmap
 ```
@@ -48,6 +50,9 @@ python evaluate_hpatches_sequences.py --dataset_path data/hpatches-sequences-rel
 python evaluate_hpatches_sequences.py --dataset_path data/hpatches-sequences-release/ --descriptor hardnet
 ```
 
+## Privacy attacks
+
+Coming soon...
 
 ## BibTeX
 
