@@ -22,9 +22,14 @@ MatrixType gram_schmidt_orthogonalization(const MatrixType& B) {
 
   for (Eigen::Index i = 1; i < subspace_dim; ++i) {
     RowVectorType v = B.row(i);
-    for (Eigen::Index j = 0; j < i; ++j) {
-      const RowVectorType& u = M.row(j);
-      v = v - orthonormal_projection(u, v);
+    // Two passes ("twice is enough"): a single pass loses orthogonality in
+    // float32 when the input vectors are badly conditioned, which happens
+    // occasionally for the randomly drawn bases (errors up to ~1e-1 for m = 8).
+    for (int pass = 0; pass < 2; ++pass) {
+      for (Eigen::Index j = 0; j < i; ++j) {
+        const RowVectorType& u = M.row(j);
+        v = v - orthonormal_projection(u, v);
+      }
     }
     M.row(i) = v.normalized();
   }
