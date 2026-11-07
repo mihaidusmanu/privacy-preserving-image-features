@@ -28,6 +28,13 @@ cd py_ppif; pip install .; cd ..
 cd py_ppif_cuda; pip install .; cd ..
 ```
 
+## Tests
+
+The bindings are checked against small NumPy reference implementations of the paper's definitions (the CUDA tests are skipped if `pyppifcuda` is not installed):
+```
+python -m pytest tests
+```
+
 ## HPatches Sequences evaluation
 
 Start by installing COLMAP (used for SIFT feature extraction) and set the env variable `COLMAP_PATH` to the COLMAP executable, e.g.:
