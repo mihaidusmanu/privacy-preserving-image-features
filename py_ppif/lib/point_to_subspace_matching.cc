@@ -11,7 +11,7 @@ namespace py = pybind11;
 #include "types.h"
 
 ScalarType point_to_subspace_distance(const RowVectorType& p, const MatrixType& A) {
-  assert(p.rows() == A.cols());
+  assert(p.cols() == A.cols());
 
   const Eigen::Index subspace_dim = A.rows() - 1;
 
