@@ -9,6 +9,92 @@
 
 #define BLOCK_DIM 16
 
+// The closed-form solution below inverts N = I - M M^T and requires it to be
+// invertible. The eigenvalues of N lie in [0, 1] (they are sin^2 of the principal
+// angles between the subspaces), so det(N) <= lambda_min(N). If det(N) is above
+// this tolerance, N is well conditioned and the closed form is accurate; otherwise
+// the fallback below is used. 1e-4 corresponds to a shared direction up to ~0.6
+// degrees, below which the closed form starts losing accuracy in float.
+#define SINGULAR_DET_TOLERANCE 1e-4f
+// Pivots below this value are treated as zero by the fallback (directions closer
+// than ~0.06 degrees are treated as shared). Below that, float32 cannot resolve the
+// distance anyway: the closest points lie hundreds of units or more along the
+// subspaces. Dropping a direction can only overestimate the distance.
+#define SHARED_DIRECTION_TOLERANCE 1e-6f
+
+// Fallback for (near-)singular N, i.e. subspaces that (almost) share a direction.
+// This happens when two features are lifted with two or more of the same
+// adversarial database words: both subspaces then contain the line through them.
+// Solves the same equations as the closed form in the kernel below,
+//   N alpha = yA + M yB,   beta = -M^T alpha - yB,
+// but with a rank-revealing solve instead of N^-1. It recomputes its inputs from
+// global memory and is kept out of line, so that it does not affect register
+// allocation of the common path.
+template<int LIFTING_DIM> __device__ __noinline__ ScalarType distance_between_two_affine_subspaces_fallback(
+    const int n_A, const ScalarType* A, const int n_B, const ScalarType* B,
+    const int idx1, const int idx2) {
+// Element d of row i of subspace idx1 (A) / idx2 (B); row LIFTING_DIM is the offset.
+#define A_AT(i, d) A[(d) * (LIFTING_DIM + 1) * n_A + (i) * n_A + idx1]
+#define B_AT(i, d) B[(d) * (LIFTING_DIM + 1) * n_B + (i) * n_B + idx2]
+  ScalarType yA[LIFTING_DIM];
+  ScalarType yB[LIFTING_DIM];
+  ScalarType M[LIFTING_DIM * LIFTING_DIM];
+  for (int i = 0; i < LIFTING_DIM; ++i) {
+    yA[i] = 0;
+    yB[i] = 0;
+    for (int j = 0; j < LIFTING_DIM; ++j) {
+      M[i * LIFTING_DIM + j] = 0;
+    }
+  }
+  for (int d = 0; d < DIM; ++d) {
+    const ScalarType cAB = B_AT(LIFTING_DIM, d) - A_AT(LIFTING_DIM, d);
+    for (int i = 0; i < LIFTING_DIM; ++i) {
+      yA[i] += A_AT(i, d) * cAB;
+      yB[i] += B_AT(i, d) * cAB;
+      for (int j = 0; j < LIFTING_DIM; ++j) {
+        M[i * LIFTING_DIM + j] -= A_AT(i, d) * B_AT(j, d);
+      }
+    }
+  }
+
+  // N = I - M M^T and the right-hand side yA + M yB.
+  ScalarType N[LIFTING_DIM * LIFTING_DIM];
+  ScalarType rhs[LIFTING_DIM];
+  for (int i = 0; i < LIFTING_DIM; ++i) {
+    rhs[i] = yA[i];
+    for (int j = 0; j < LIFTING_DIM; ++j) {
+      rhs[i] += M[i * LIFTING_DIM + j] * yB[j];
+      ScalarType v = (i == j) ? 1.0f : 0.0f;
+      for (int k = 0; k < LIFTING_DIM; ++k) {
+        v -= M[i * LIFTING_DIM + k] * M[j * LIFTING_DIM + k];
+      }
+      N[i * LIFTING_DIM + j] = v;
+    }
+  }
+
+  ScalarType xA[LIFTING_DIM];
+  solve_psd_system<LIFTING_DIM>(N, rhs, xA, SHARED_DIRECTION_TOLERANCE);
+  ScalarType xB[LIFTING_DIM];
+  for (int i = 0; i < LIFTING_DIM; ++i) {
+    xB[i] = -yB[i];
+    for (int j = 0; j < LIFTING_DIM; ++j) {
+      xB[i] -= M[j * LIFTING_DIM + i] * xA[j];
+    }
+  }
+
+  ScalarType dist = 0;
+  for (int d = 0; d < DIM; ++d) {
+    ScalarType aux = B_AT(LIFTING_DIM, d) - A_AT(LIFTING_DIM, d);
+    for (int i = 0; i < LIFTING_DIM; ++i) {
+      aux += xB[i] * B_AT(i, d) - xA[i] * A_AT(i, d);
+    }
+    dist += aux * aux;
+  }
+  return dist;
+#undef A_AT
+#undef B_AT
+}
+
 // Subspace-to-subspace distance CUDA implementation.
 template<int LIFTING_DIM> __global__ void compute_distance_between_two_affine_subspaces_kernel(
     const int n_A, const ScalarType* A, const int n_B,
@@ -72,6 +158,14 @@ template<int LIFTING_DIM> __global__ void compute_distance_between_two_affine_su
       }
     }
     N[i * LIFTING_DIM + i] += 1;
+  }
+
+  // Fall back when N is (near-)singular; see SINGULAR_DET_TOLERANCE. The
+  // negated comparison also catches NaN.
+  if (!(determinant<LIFTING_DIM>(N) > SINGULAR_DET_TOLERANCE)) {
+    distances[idx1 * n_B + idx2] =
+        distance_between_two_affine_subspaces_fallback<LIFTING_DIM>(n_A, A, n_B, B, idx1, idx2);
+    return;
   }
 
   // Compute N = (I - M M^T)^-1.

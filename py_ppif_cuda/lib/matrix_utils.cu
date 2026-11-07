@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <assert.h>
+#include <math.h>
 
 #include <cuda_runtime.h>
 
@@ -221,4 +222,103 @@ template<> __device__ void left_transpose_multiply_matrix_in_place<4>(ScalarType
   M[13] = M_[3] * m01 + M_[7] * m11 + M_[11] * m21 + M_[15] * m31;
   M[14] = M_[3] * m02 + M_[7] * m12 + M_[11] * m22 + M_[15] * m32;
   M[15] = M_[3] * m03 + M_[7] * m13 + M_[11] * m23 + M_[15] * m33;
+}
+
+/// Determinant of a NxN matrix.
+///
+/// @param M  NxN row-major matrix.
+template<int N> __device__ ScalarType determinant(const ScalarType* M);
+
+template<> __device__ ScalarType determinant<2>(const ScalarType* M) {
+  return determinant_matrix2(M[0], M[1],
+                             M[2], M[3]);
+}
+
+template<> __device__ ScalarType determinant<4>(const ScalarType* M) {
+  return determinant_matrix4(M[0], M[1], M[2], M[3],
+                             M[4], M[5], M[6], M[7],
+                             M[8], M[9], M[10], M[11],
+                             M[12], M[13], M[14], M[15]);
+}
+
+/// Solve the NxN symmetric positive semi-definite system M x = z (with z in the
+/// range of M) using a pivoted Cholesky factorisation M = P L L^T P^T. Pivots
+/// below `tolerance` are treated as zero and the matching entries of x are set to
+/// 0, so a singular M gives a valid solution instead of dividing by ~0.
+///
+/// @param M          NxN row-major matrix, overwritten (its lower triangle holds L).
+/// @param z          N right-hand side.
+/// @param x          N solution.
+/// @param tolerance  Pivots below this value are treated as zero.
+template<int N> __device__ void solve_psd_system(ScalarType* M, const ScalarType* z, ScalarType* x,
+                                                 const ScalarType tolerance) {
+  int perm[N];
+  for (int i = 0; i < N; ++i) {
+    perm[i] = i;
+  }
+
+  int rank = 0;
+  for (int k = 0; k < N; ++k) {
+    // Pivot on the largest remaining diagonal entry.
+    int p = k;
+    for (int i = k + 1; i < N; ++i) {
+      if (M[i * N + i] > M[p * N + p]) {
+        p = i;
+      }
+    }
+    if (!(M[p * N + p] > tolerance)) {
+      break;
+    }
+    if (p != k) {
+      for (int j = 0; j < N; ++j) {
+        const ScalarType tmp = M[k * N + j];
+        M[k * N + j] = M[p * N + j];
+        M[p * N + j] = tmp;
+      }
+      for (int i = 0; i < N; ++i) {
+        const ScalarType tmp = M[i * N + k];
+        M[i * N + k] = M[i * N + p];
+        M[i * N + p] = tmp;
+      }
+      const int tmp = perm[k];
+      perm[k] = perm[p];
+      perm[p] = tmp;
+    }
+    // Column k of L, then update the trailing block (kept symmetric so that
+    // later row / column swaps stay valid).
+    M[k * N + k] = sqrtf(M[k * N + k]);
+    for (int i = k + 1; i < N; ++i) {
+      M[i * N + k] /= M[k * N + k];
+    }
+    for (int i = k + 1; i < N; ++i) {
+      for (int j = k + 1; j < N; ++j) {
+        M[i * N + j] -= M[i * N + k] * M[j * N + k];
+      }
+    }
+    ++rank;
+  }
+
+  // Solve L L^T w = P^T z on the leading rank x rank block.
+  ScalarType w[N];
+  for (int i = 0; i < rank; ++i) {
+    ScalarType s = z[perm[i]];
+    for (int j = 0; j < i; ++j) {
+      s -= M[i * N + j] * w[j];
+    }
+    w[i] = s / M[i * N + i];
+  }
+  for (int i = rank - 1; i >= 0; --i) {
+    ScalarType s = w[i];
+    for (int j = i + 1; j < rank; ++j) {
+      s -= M[j * N + i] * w[j];
+    }
+    w[i] = s / M[i * N + i];
+  }
+
+  for (int i = 0; i < N; ++i) {
+    x[i] = 0;
+  }
+  for (int i = 0; i < rank; ++i) {
+    x[perm[i]] = w[i];
+  }
 }
