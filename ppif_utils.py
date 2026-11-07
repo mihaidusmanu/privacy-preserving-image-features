@@ -34,6 +34,13 @@ def lifting_config_to_str(lifting_config):
         raise NotImplementedError(lifting_alg)
 
 
+def load_lifting_database(descriptor):
+    # The databases are stored as float64, but the bindings take float32. Without
+    # this conversion, pybind11 makes a temporary float32 copy of the whole database
+    # (~130 MB) on every lifting call, i.e. once per image.
+    return np.ascontiguousarray(np.load(f'databases/{descriptor}.npy'), dtype=np.float32)
+
+
 def select_lifting_function(lifting_config, descriptor):
     lifting_alg = lifting_config['alg']
     lifting_dim = lifting_config['dim']
@@ -41,20 +48,20 @@ def select_lifting_function(lifting_config, descriptor):
         def lifting_function(descriptor, seed=0):
             return pyppif.random_lifting(descriptor, lifting_dim, seed=seed)
     elif lifting_alg == LiftingAlgorithms.ADV:
-        database = np.load(f'databases/{descriptor}.npy')
+        database = load_lifting_database(descriptor)
         def lifting_function(descriptor, seed=0):
             return pyppif.adversarial_lifting(descriptor, lifting_dim, database, num_sub_databases=1, seed=seed)
     elif lifting_alg == LiftingAlgorithms.HYB:
-        database = np.load(f'databases/{descriptor}.npy')
+        database = load_lifting_database(descriptor)
         def lifting_function(descriptor, seed=0):
             return pyppif.hybrid_lifting(descriptor, lifting_dim, database, num_sub_databases=1, seed=seed)
     elif lifting_alg == LiftingAlgorithms.SUBADV:
-        database = np.load(f'databases/{descriptor}.npy')
+        database = load_lifting_database(descriptor)
         num_sub_databases = lifting_config['num_sub_databases']
         def lifting_function(descriptor, seed=0):
             return pyppif.adversarial_lifting(descriptor, lifting_dim, database, num_sub_databases=num_sub_databases, seed=seed)
     elif lifting_alg == LiftingAlgorithms.SUBHYB:
-        database = np.load(f'databases/{descriptor}.npy')
+        database = load_lifting_database(descriptor)
         num_sub_databases = lifting_config['num_sub_databases']
         def lifting_function(descriptor, seed=0):
             return pyppif.hybrid_lifting(descriptor, lifting_dim, database, num_sub_databases=num_sub_databases, seed=seed)
