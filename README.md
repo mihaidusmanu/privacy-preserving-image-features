@@ -13,7 +13,7 @@ M. Dusmanu, J.L. Schönberger, S.N. Sinha, and M. Pollefeys. CVPR 2021.
 
 ## Requirements
 
-OpenMP and Eigen must be installed prior to the setup of this repository. CUDA is also a recommended dependency for best performance.
+Eigen must be installed prior to the setup of this repository. OpenMP is recommended (without it, the CPU matchers run single-threaded) and CUDA is also a recommended dependency for best performance.
 
 1. Start by creating and activating the base python environment:
 ```
